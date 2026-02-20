@@ -1,20 +1,7 @@
 use async_trait::async_trait;
-use gbe_jobs_domain::{JobDefinition, JobId, TaskId};
+use gbe_jobs_domain::{JobDefinition, JobId, TaskId, TaskOutcome};
 
 use crate::error::OracleError;
-
-/// Outcome reported by an operative after executing a task.
-#[derive(Debug, Clone)]
-pub enum TaskOutcome {
-    Completed {
-        output: Vec<String>,
-        result_ref: Option<String>,
-    },
-    Failed {
-        exit_code: i32,
-        error: String,
-    },
-}
 
 /// The Oracle walks job DAGs and dispatches tasks as dependencies resolve.
 /// It does not execute tasks — that is the Operative's concern.

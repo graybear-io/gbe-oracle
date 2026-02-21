@@ -6,7 +6,7 @@ use crate::error::OracleError;
 /// Synchronous DAG state machine. Tracks which tasks have been dispatched
 /// and completed, resolves dependencies, and reports ready tasks.
 ///
-/// The SimpleOracle is transport-agnostic — it doesn't publish or subscribe.
+/// The `SimpleOracle` is transport-agnostic — it doesn't publish or subscribe.
 /// A driver (async loop, bus integration, etc.) calls its methods and handles
 /// delivery to operatives.
 pub struct SimpleOracle {
@@ -18,6 +18,10 @@ pub struct SimpleOracle {
 
 impl SimpleOracle {
     /// Create a new oracle for a validated job definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns `OracleError` if the job definition fails validation.
     pub fn new(def: JobDefinition) -> Result<Self, OracleError> {
         def.validate()?;
         Ok(Self {
@@ -30,6 +34,7 @@ impl SimpleOracle {
 
     /// Return task definitions whose dependencies are all completed
     /// and that haven't been dispatched yet.
+    #[must_use]
     pub fn ready_tasks(&self) -> Vec<&TaskDefinition> {
         if self.failed.is_some() {
             return vec![];
@@ -61,21 +66,25 @@ impl SimpleOracle {
     }
 
     /// True when all tasks have completed successfully.
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         self.completed.len() == self.definition.tasks.len()
     }
 
     /// True if a task has failed.
+    #[must_use]
     pub fn is_failed(&self) -> bool {
         self.failed.is_some()
     }
 
     /// The name of the failed task, if any.
+    #[must_use]
     pub fn failed_task(&self) -> Option<&str> {
         self.failed.as_deref()
     }
 
     /// The underlying job definition.
+    #[must_use]
     pub fn definition(&self) -> &JobDefinition {
         &self.definition
     }
@@ -222,7 +231,10 @@ mod tests {
         oracle.mark_dispatched("right");
 
         let ready_after_left = oracle.task_completed("left");
-        assert!(ready_after_left.is_empty(), "join not ready with only left done");
+        assert!(
+            ready_after_left.is_empty(),
+            "join not ready with only left done"
+        );
 
         let ready_after_right = oracle.task_completed("right");
         assert_eq!(ready_after_right.len(), 1);

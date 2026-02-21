@@ -17,9 +17,6 @@ pub trait Oracle: Send + Sync {
     async fn tick(&self) -> Result<(), OracleError>;
 
     /// Handle a task completion/failure report from an operative.
-    async fn task_reported(
-        &self,
-        task_id: TaskId,
-        outcome: TaskOutcome,
-    ) -> Result<(), OracleError>;
+    async fn task_reported(&self, task_id: TaskId, outcome: TaskOutcome)
+        -> Result<(), OracleError>;
 }

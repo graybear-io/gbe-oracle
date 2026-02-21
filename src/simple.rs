@@ -258,4 +258,154 @@ mod tests {
         oracle.task_completed("a");
         assert!(!oracle.is_complete());
     }
+
+    #[test]
+    fn failed_task_name_preserved() {
+        let mut oracle = SimpleOracle::new(linear_dag()).unwrap();
+        oracle.task_failed("a");
+        assert_eq!(oracle.failed_task(), Some("a"));
+    }
+
+    #[test]
+    fn second_failure_overwrites_first() {
+        let mut oracle = SimpleOracle::new(diamond_dag()).unwrap();
+        oracle.task_failed("left");
+        oracle.task_failed("right");
+        // Second call overwrites — current implementation uses Option assignment
+        assert_eq!(oracle.failed_task(), Some("right"));
+        assert!(oracle.is_failed());
+    }
+
+    #[test]
+    fn dispatched_but_not_completed_blocks_dependents() {
+        let mut oracle = SimpleOracle::new(linear_dag()).unwrap();
+        oracle.mark_dispatched("a");
+        // "a" dispatched but not completed — "b" should not be ready
+        let ready = oracle.ready_tasks();
+        assert!(ready.is_empty());
+    }
+
+    #[test]
+    fn all_roots_dispatched_returns_empty() {
+        let mut oracle = SimpleOracle::new(diamond_dag()).unwrap();
+        oracle.mark_dispatched("root");
+        let ready = oracle.ready_tasks();
+        assert!(ready.is_empty());
+    }
+
+    #[test]
+    fn completing_task_idempotent() {
+        let mut oracle = SimpleOracle::new(linear_dag()).unwrap();
+        oracle.mark_dispatched("a");
+        oracle.task_completed("a");
+        oracle.task_completed("a"); // second completion
+        assert!(!oracle.is_complete()); // still need b, c
+        let ready = oracle.ready_tasks();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].name, "b");
+    }
+
+    #[test]
+    fn definition_accessor_returns_original() {
+        let def = linear_dag();
+        let oracle = SimpleOracle::new(def).unwrap();
+        assert_eq!(oracle.definition().name, "Linear");
+        assert_eq!(oracle.definition().tasks.len(), 3);
+    }
+
+    #[test]
+    fn partial_diamond_completion_join_waits() {
+        let mut oracle = SimpleOracle::new(diamond_dag()).unwrap();
+        oracle.mark_dispatched("root");
+        oracle.task_completed("root");
+        oracle.mark_dispatched("left");
+        oracle.mark_dispatched("right");
+        oracle.task_completed("left");
+        // left done, right dispatched but not complete — join not ready
+        let ready = oracle.ready_tasks();
+        assert!(ready.is_empty(), "join needs both branches complete");
+    }
+
+    fn wide_dag() -> JobDefinition {
+        let mut tasks = vec![TaskDefinition {
+            name: "root".to_string(),
+            task_type: TaskType::new("work").unwrap(),
+            depends_on: vec![],
+            params: TaskParams::default(),
+            input_from: std::collections::HashMap::new(),
+            timeout_secs: None,
+            max_retries: None,
+        }];
+        for i in 0..10 {
+            tasks.push(TaskDefinition {
+                name: format!("branch-{i}"),
+                task_type: TaskType::new("work").unwrap(),
+                depends_on: vec!["root".to_string()],
+                params: TaskParams::default(),
+                input_from: std::collections::HashMap::new(),
+                timeout_secs: None,
+                max_retries: None,
+            });
+        }
+        tasks.push(TaskDefinition {
+            name: "join".to_string(),
+            task_type: TaskType::new("work").unwrap(),
+            depends_on: (0..10).map(|i| format!("branch-{i}")).collect(),
+            params: TaskParams::default(),
+            input_from: std::collections::HashMap::new(),
+            timeout_secs: None,
+            max_retries: None,
+        });
+        JobDefinition {
+            v: 1,
+            name: "Wide".to_string(),
+            job_type: "wide".to_string(),
+            tasks,
+        }
+    }
+
+    #[test]
+    fn wide_fan_out_fan_in() {
+        let mut oracle = SimpleOracle::new(wide_dag()).unwrap();
+        oracle.mark_dispatched("root");
+        let branches = oracle.task_completed("root");
+        assert_eq!(branches.len(), 10);
+
+        // Dispatch and complete all but one branch
+        for i in 0..10 {
+            oracle.mark_dispatched(&format!("branch-{i}"));
+        }
+        for i in 0..9 {
+            oracle.task_completed(&format!("branch-{i}"));
+        }
+        // Join still not ready — branch-9 dispatched but not complete
+        let ready = oracle.ready_tasks();
+        assert!(ready.is_empty(), "join needs all 10 branches");
+
+        // Complete last branch
+        let ready = oracle.task_completed("branch-9");
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].name, "join");
+    }
+
+    #[test]
+    fn failure_midway_blocks_remaining() {
+        let mut oracle = SimpleOracle::new(linear_dag()).unwrap();
+        oracle.mark_dispatched("a");
+        oracle.task_completed("a");
+        oracle.mark_dispatched("b");
+        oracle.task_failed("b");
+
+        assert!(oracle.is_failed());
+        assert!(!oracle.is_complete());
+        assert!(oracle.ready_tasks().is_empty());
+        assert_eq!(oracle.failed_task(), Some("b"));
+    }
+
+    #[test]
+    fn not_failed_initially() {
+        let oracle = SimpleOracle::new(linear_dag()).unwrap();
+        assert!(!oracle.is_failed());
+        assert!(oracle.failed_task().is_none());
+    }
 }
